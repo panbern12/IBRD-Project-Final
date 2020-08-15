@@ -6,6 +6,8 @@ import email
 import imaplib
 import os
 import sys
+import mysql.connector
+from sqlalchemy import create_engine
 
 #%%
 class ETL():
@@ -15,6 +17,12 @@ class ETL():
         self.userName = 'bkagimu12@gmail.com'
         self.password = 'bkpython'
         self.date = dt.datetime.today().strftime("""%d-%b-%Y""")
+
+        self.mydb = mysql.connector.connect(
+                    host='127.0.0.1',
+                    user="root",
+                    password=""
+                    )
 
 
     def DownloadingEmailAttachment(self, From, Subject):
@@ -130,91 +138,81 @@ class ETL():
 
 
 
+    def CreatingMySQLDB(self): 
+        """ Creating a STAR Schema architecture in MySQL Based Database"""
 
-#%%
+        mycursor = self.mydb.cursor()
 
-############create My sql database with Star Schema ######
-import mysql.connector
+        #mycursor.execute("CREATE DATABASE IBRD")
 
-mydb = mysql.connector.connect(
-  host='127.0.0.1',
-  user="root",
-  password=""
-)
+        mycursor.execute("USE IBRD")
 
-mycursor = mydb.cursor()
+        mycursor.execute("""CREATE TABLE IF NOT EXISTS loan(
+        processed_date DATETIME NOT NULL,
+        Loan_Number varchar(50) NOT NULL, 
+        Loan_Type varchar(50) ,
+        Project_ID varchar(50),
+        Country_Code varchar(5),
+        Guarantor_Country_Code varchar(5),
+        Borrower varchar(50),
+        Loan_Status varchar(50),
+        Interest_Rate DOUBLE(40,2),
+        Currency_of_Commitment varchar(50),
+        Original_Principal_Amount DOUBLE(40,2),
+        Cancelled_Amount DOUBLE(40,2),
+        Undisbursed_Amount DOUBLE(40,2),
+        Disbursed_Amount DOUBLE(40,2),
+        Repaid_to_IBRD DOUBLE(40,2),
+        Due_to_IBRD DOUBLE(40,2),
+        Exchange_Adjustment DOUBLE(40,2),
+        Borrowers_Obligation DOUBLE(40,2),
+        Sold_3rd_Party DOUBLE(40,2),
+        Repaid_3rd_Party DOUBLE(40,2),
+        Due_3rd_Party DOUBLE(40,2),
+        Loans_Held DOUBLE(40,2),
+        First_Repayment_Date DATETIME ,
+        Last_Repayment_Date DATETIME ,
+        Agreement_Signing_Date DATETIME ,
+        Board_Approval_Date DATETIME ,
+        Effective_Date DATETIME ,
+        Closed_Date DATETIME ,
+        Last_Disbursement_Date DATETIME ,
+        End_of_Period DATETIME ,
+        CONSTRAINT loan_key PRIMARY KEY (processed_date,Loan_Number),
+        FOREIGN KEY(Country_Code) REFERENCES         
+        country(Country_Code)
+        ON UPDATE CASCADE ON DELETE RESTRICT,  
+        FOREIGN KEY(Guarantor_Country_Code) REFERENCES         
+        guarantor(Guarantor_Country_Code)
+        ON UPDATE CASCADE ON DELETE RESTRICT,  
+        FOREIGN KEY(Project_ID) REFERENCES         
+        project(Project_ID )
+        ON UPDATE CASCADE ON DELETE RESTRICT)""")
 
-#mycursor.execute("CREATE DATABASE IBRD")
-
-mycursor.execute("USE IBRD")
-
-mycursor.execute("""CREATE TABLE IF NOT EXISTS loan(
-processed_date DATETIME NOT NULL,
-Loan_Number varchar(50) NOT NULL, 
-Loan_Type varchar(50) ,
-Project_ID varchar(50),
-Country_Code varchar(5),
-Guarantor_Country_Code varchar(5),
-Borrower varchar(50),
-Loan_Status varchar(50),
-Interest_Rate DOUBLE(40,2),
-Currency_of_Commitment varchar(50),
-Original_Principal_Amount DOUBLE(40,2),
-Cancelled_Amount DOUBLE(40,2),
-Undisbursed_Amount DOUBLE(40,2),
-Disbursed_Amount DOUBLE(40,2),
-Repaid_to_IBRD DOUBLE(40,2),
-Due_to_IBRD DOUBLE(40,2),
-Exchange_Adjustment DOUBLE(40,2),
-Borrowers_Obligation DOUBLE(40,2),
-Sold_3rd_Party DOUBLE(40,2),
-Repaid_3rd_Party DOUBLE(40,2),
-Due_3rd_Party DOUBLE(40,2),
-Loans_Held DOUBLE(40,2),
-First_Repayment_Date DATETIME ,
-Last_Repayment_Date DATETIME ,
-Agreement_Signing_Date DATETIME ,
-Board_Approval_Date DATETIME ,
-Effective_Date DATETIME ,
-Closed_Date DATETIME ,
-Last_Disbursement_Date DATETIME ,
-End_of_Period DATETIME ,
-CONSTRAINT loan_key PRIMARY KEY (processed_date,Loan_Number),
-FOREIGN KEY(Country_Code) REFERENCES         
-country(Country_Code)
-ON UPDATE CASCADE ON DELETE RESTRICT,  
-FOREIGN KEY(Guarantor_Country_Code) REFERENCES         
-guarantor(Guarantor_Country_Code)
-ON UPDATE CASCADE ON DELETE RESTRICT,  
-FOREIGN KEY(Project_ID) REFERENCES         
-project(Project_ID )
-ON UPDATE CASCADE ON DELETE RESTRICT)""")
-
-mycursor.execute("""CREATE TABLE IF NOT EXISTS country(
-Country_Code varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
-Country varchar(50) ,
-Region varchar(50)
-)""")
+        mycursor.execute("""CREATE TABLE IF NOT EXISTS country(
+        Country_Code varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
+        Country varchar(50) ,
+        Region varchar(50)
+        )""")
 
 
-mycursor.execute("""CREATE TABLE IF NOT EXISTS guarantor(
-Guarantor_Country_Code varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
-Guarantor varchar(50) ,
-FOREIGN KEY(Guarantor_Country_Code) REFERENCES         
-country(Country_Code )
-ON UPDATE CASCADE ON DELETE RESTRICT
-)""")
+        mycursor.execute("""CREATE TABLE IF NOT EXISTS guarantor(
+        Guarantor_Country_Code varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
+        Guarantor varchar(50) ,
+        FOREIGN KEY(Guarantor_Country_Code) REFERENCES         
+        country(Country_Code )
+        ON UPDATE CASCADE ON DELETE RESTRICT
+        )""")
 
 
-mycursor.execute("""CREATE TABLE IF NOT EXISTS project(
-Project_ID varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
-Project_Name varchar(50)
-)""")
+        mycursor.execute("""CREATE TABLE IF NOT EXISTS project(
+        Project_ID varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
+        Project_Name varchar(50)
+        )""")
     
-mycursor.execute("select count(Loan_Number) from loan")
+#mycursor.execute("select count(Loan_Number) from loan")
 
-####Load data from the csv into the database schema tables
-from sqlalchemy import create_engine
+
 
 # create sqlalchemy engine
 engine = create_engine("mysql+mysqlconnector://{user}:{pw}@localhost/{db}"
