@@ -1,112 +1,137 @@
+#%%
 #Import packages
 import pandas as pd
 import datetime as dt 
-
-##########Extracting Email attachment from Email ########
 import email
 import imaplib
 import os
 import sys
 
-connection = imaplib.IMAP4_SSL('imap.gmail.com')
-userName = 'bkagimu12@gmail.com'
-password = 'bkpython'
-connection.login(userName, password)
-connection.select('Inbox') # select which folder to search from in the mailbox
-typ, data= connection.search(None,'(FROM "Mukiza Rayner")') #Specify the search  criteria
+#%%
+class ETL():
 
-for msgId in data[0].split():
-    typ,messageParts = connection.fetch(msgId, '(RFC822)')
-    emailBody = messageParts[0][1]
-    emailBody = emailBody.decode('utf-8')
-    mail = email.message_from_string(emailBody)
+    def __init__(self):
+        self.connection = imaplib.IMAP4_SSL('imap.gmail.com')
+        self.userName = 'bkagimu12@gmail.com'
+        self.password = 'bkpython'
+        self.date = dt.datetime.today().strftime("""%d-%b-%Y""")
 
-    for part in mail.walk():
-        fileName = part.get_filename()
 
-        if bool(fileName):
-            filePath = os.path.join(r'C:\Users\kagimub\Desktop\IBRD Project', fileName)
-            if not os.path.isfile(filePath) :
-                print (fileName)
-                fp = open(filePath, 'wb')
-                fp.write(part.get_payload(decode=True))
-                fp.close()
+    def DownloadingEmailAttachment(self, From, Subject):
 
-            else:
-                    print("no attachment")
+        """ Fuction for downloading Email Attachment 
+        from email Account
+        
+        Returns Filename
+        """
+        
+        self.connection.login(self.userName, self.password)
+        self.connection.select('Inbox') # select which folder to search from in the mailbox
+        response, data= self.connection.search(None,f'(FROM "{From}" SUBJECT "{Subject}" SENTON "{self.date}")') #Specify the search  criteria
 
-df = pd.read_csv(r'C:\Users\kagimub\Desktop\IBRD Project\ibrd-statement-of-loans-latest-available-snapshot.csv')
+        for msgId in data[0].split():
+            typ,messageParts = self.connection.fetch(msgId, '(RFC822)')
+            emailBody = messageParts[0][1]
+            emailBody = emailBody.decode('utf-8')
+            mail = email.message_from_string(emailBody)
 
-####save raw file to a location with date appended #####
-day=dt.datetime.today().strftime('%Y%m%d')
-df.to_csv(r'C:\Users\kagimub\Desktop\IBRD Project\ibrd-statement-of-loans-latest-available-snapshot_{}.csv'.format(day))
+            for part in mail.walk():
+                fileName = part.get_filename()
 
-#####split the csv into tables###################################
-#############country table############# 
-country=df[['Country Code', 'Country','Region']]
+                if bool(fileName):
+                    filePath = os.path.join('./data', fileName)
+                    if not os.path.isfile(filePath) :
+                        print (fileName)
+                        fp = open(filePath, 'wb')
+                        fp.write(part.get_payload(decode=True))
+                        fp.close()
 
-#working with columns
-country.columns=['Country_Code', 'Country','Region']
+                    else:
+                            print("no attachment")
 
-# sorting by Country code 
-country.sort_values("Country_Code", inplace=True) 
-  
-# dropping duplicate values 
-country.drop_duplicates(subset ="Country_Code",keep='first',inplace=True)
+            return fileName
 
-#############guarantor table############# 
-guarantor= df[['Guarantor Country Code', 'Guarantor']]
 
-#guarantor columns
-guarantor.columns=['Guarantor_Country_Code', 'Guarantor']
+    def DataProcessing(self, filename):
 
-# sorting by Guarantor_Country_Code
-guarantor.sort_values("Guarantor_Country_Code", inplace=True) 
-  
-# dropping duplicate values 
-guarantor.drop_duplicates(subset ="Guarantor_Country_Code",keep='first',inplace=True) 
- 
-#############project table############# 
-project=df[['Project ID','Project Name']]
+        df = pd.read_csv(filename)
 
-#project columns
-project.columns=['Project_ID','Project_Name']
+        df.to_csv(filename+f"_{dt.datetime.today().strftime('%Y%m%d')}.csv")
 
-# sorting by Project_ID
-project.sort_values("Project_ID", inplace=True) 
-  
-# dropping duplicate values 
-project.drop_duplicates(subset ="Project_ID",keep='first',inplace=True) 
+        #####split the csv into tables###################################
+        #############country table############# 
+        country=df[['Country Code', 'Country','Region']]
 
-#############loan table############# 
-loan=df[['Loan Number','Loan Type','Project ID','Country Code','Guarantor Country Code'
-         ,'Borrower','Loan Status', 'Interest Rate', 'Currency of Commitment',
-            'Original Principal Amount', 'Cancelled Amount','Undisbursed Amount'
-            , 'Disbursed Amount', 'Repaid to IBRD','Due to IBRD', 'Exchange Adjustment'
-            , '''Borrower's Obligation''','Sold 3rd Party', 'Repaid 3rd Party'
-            , 'Due 3rd Party', 'Loans Held','First Repayment Date', 'Last Repayment Date'
-            , 'Agreement Signing Date','Board Approval Date', 'Effective Date (Most Recent)'
-            ,'Closed Date (Most Recent)', 'Last Disbursement Date','End of Period']]
+        #working with columns
+        country.columns=['Country_Code', 'Country','Region']
 
-loan.columns=['Loan_Number','Loan_Type','Project_ID','Country_Code','Guarantor_Country_Code'
-         ,'Borrower','Loan_Status', 'Interest_Rate', 'Currency_of_Commitment',
-            'Original_Principal_Amount', 'Cancelled_Amount','Undisbursed_Amount'
-            , 'Disbursed_Amount', 'Repaid_to_IBRD','Due_to_IBRD', 'Exchange_Adjustment'
-            , '''Borrowers_Obligation''','Sold_3rd_Party', 'Repaid_3rd_Party'
-            , 'Due_3rd_Party', 'Loans_Held','First_Repayment_Date', 'Last_Repayment_Date'
-            , 'Agreement_Signing_Date','Board_Approval_Date', 'Effective_Date'
-            ,'Closed_Date', 'Last_Disbursement_Date','End_of_Period']
+        # sorting by Country code 
+        country.sort_values("Country_Code", inplace=True) 
+        
+        # dropping duplicate values 
+        country.drop_duplicates(subset ="Country_Code",keep='first',inplace=True)
 
-# sorting by Loan_Number
-loan.sort_values("Loan_Number", inplace=True) 
-  
-# dropping duplicate values 
-loan.drop_duplicates(subset ="Loan_Number",keep='first',inplace=True) 
+        #############guarantor table############# 
+        guarantor= df[['Guarantor Country Code', 'Guarantor']]
 
-#inserting the processed or received date
+        #guarantor columns
+        guarantor.columns=['Guarantor_Country_Code', 'Guarantor']
 
-loan.insert(0,'processed_date',dt.datetime.today())
+        # sorting by Guarantor_Country_Code
+        guarantor.sort_values("Guarantor_Country_Code", inplace=True) 
+        
+        # dropping duplicate values 
+        guarantor.drop_duplicates(subset ="Guarantor_Country_Code",keep='first',inplace=True) 
+        
+        #############project table############# 
+        project=df[['Project ID','Project Name']]
 
+        #project columns
+        project.columns=['Project_ID','Project_Name']
+
+        # sorting by Project_ID
+        project.sort_values("Project_ID", inplace=True) 
+        
+        # dropping duplicate values 
+        project.drop_duplicates(subset ="Project_ID",keep='first',inplace=True) 
+
+        #############loan table############# 
+        loan=df[['Loan Number','Loan Type','Project ID','Country Code','Guarantor Country Code'
+                ,'Borrower','Loan Status', 'Interest Rate', 'Currency of Commitment',
+                    'Original Principal Amount', 'Cancelled Amount','Undisbursed Amount'
+                    , 'Disbursed Amount', 'Repaid to IBRD','Due to IBRD', 'Exchange Adjustment'
+                    , '''Borrower's Obligation''','Sold 3rd Party', 'Repaid 3rd Party'
+                    , 'Due 3rd Party', 'Loans Held','First Repayment Date', 'Last Repayment Date'
+                    , 'Agreement Signing Date','Board Approval Date', 'Effective Date (Most Recent)'
+                    ,'Closed Date (Most Recent)', 'Last Disbursement Date','End of Period']]
+
+        loan.columns=['Loan_Number','Loan_Type','Project_ID','Country_Code','Guarantor_Country_Code'
+                ,'Borrower','Loan_Status', 'Interest_Rate', 'Currency_of_Commitment',
+                    'Original_Principal_Amount', 'Cancelled_Amount','Undisbursed_Amount'
+                    , 'Disbursed_Amount', 'Repaid_to_IBRD','Due_to_IBRD', 'Exchange_Adjustment'
+                    , '''Borrowers_Obligation''','Sold_3rd_Party', 'Repaid_3rd_Party'
+                    , 'Due_3rd_Party', 'Loans_Held','First_Repayment_Date', 'Last_Repayment_Date'
+                    , 'Agreement_Signing_Date','Board_Approval_Date', 'Effective_Date'
+                    ,'Closed_Date', 'Last_Disbursement_Date','End_of_Period']
+
+        # sorting by Loan_Number
+        loan.sort_values("Loan_Number", inplace=True) 
+        
+        # dropping duplicate values 
+        loan.drop_duplicates(subset ="Loan_Number",keep='first',inplace=True) 
+
+        #inserting the processed or received date
+
+        loan.insert(0,'processed_date',dt.datetime.today())
+
+
+
+        return country, guarantor, project, loan
+
+
+
+
+#%%
 
 ############create My sql database with Star Schema ######
 import mysql.connector
@@ -496,3 +521,5 @@ for row in range(5,7):
 
 
 wb.save(r'C:\Users\kagimub\Desktop\IBRD Project\final_dashboard1.xlsx')
+
+# %%
