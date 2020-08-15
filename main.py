@@ -24,6 +24,14 @@ class ETL():
                     password=""
                     )
 
+        # create sqlalchemy engine
+        self.engine = create_engine("mysql+mysqlconnector://{user}:{pw}@localhost/{db}"
+                       .format(user="root",
+                               pw="",
+                               db="IBRD"))
+
+        
+
 
     def DownloadingEmailAttachment(self, From, Subject):
 
@@ -143,7 +151,8 @@ class ETL():
 
         mycursor = self.mydb.cursor()
 
-        #mycursor.execute("CREATE DATABASE IBRD")
+        # create MYSQL DataBase
+        mycursor.execute("CREATE DATABASE IBRD")
 
         mycursor.execute("USE IBRD")
 
@@ -212,23 +221,26 @@ class ETL():
     
 #mycursor.execute("select count(Loan_Number) from loan")
 
+    def LoadingCSVToDB(self, country, project, guarantor, loan):
 
+        """ Loadin Data into Database """
+        # Insert whole DataFrame into MySQL
+        country.to_sql('country', con = engine, if_exists = 'append', chunksize = 1000,index=False)
 
-# create sqlalchemy engine
-engine = create_engine("mysql+mysqlconnector://{user}:{pw}@localhost/{db}"
-                       .format(user="root",
-                               pw="",
-                               db="IBRD"))
+        project.to_sql('project', con = engine, if_exists = 'append', chunksize = 1000,index=False)
 
-# Insert whole DataFrame into MySQL
-country.to_sql('country', con = engine, if_exists = 'append', chunksize = 1000,index=False)
+        guarantor.to_sql('guarantor', con = engine, if_exists = 'append', chunksize = 1000,index=False)
 
-project.to_sql('project', con = engine, if_exists = 'append', chunksize = 1000,index=False)
-
-guarantor.to_sql('guarantor', con = engine, if_exists = 'append', chunksize = 1000,index=False)
-
-loan.to_sql('loan', con = engine, if_exists = 'append', chunksize = 1000,index=False)
+        loan.to_sql('loan', con = engine, if_exists = 'append', chunksize = 1000,index=False)
  
+
+
+
+
+
+
+
+
 #########################################WORKING ON THE DASHBOARD###############################
 
 # ##### Data Accuracy Dashboard - Getting counts and missing values from the provided csv######
