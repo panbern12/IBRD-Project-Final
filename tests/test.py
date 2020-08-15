@@ -3,16 +3,13 @@ sys.path.insert(1, 'c:/users/kagimub/desktop/IBRD Project')
 from main import ETL
 
 
-class TestFactorial(unittest.TestCase):
-    """
-    Our basic test class
-    """
+class ETLTest(unittest.TestCase):
+    """ ETL Test Cases"""
 
-    def test_fact(self):
-        """
-        The actual test.
-        Any method which starts with ``test_`` will considered as a test case.
-        """
+
+    def DownloadingEmailAttachmentTest(self):
+        """ Assert that functions returns a string File Path"""
+
         etl = ETL()
         path = etl.DownloadingEmailAttachment('Bernard Kagimu', 'HELLO TEST MAIL')
         self.assertIsInstance(path, str)
