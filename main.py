@@ -15,6 +15,8 @@ from openpyxl.styles import Border,Side,Font
 import mysql.connector
 from sqlalchemy import create_engine
 
+os.chdir('C:/Users/kagimub/Desktop/IBRD Project')
+
 #%%
 class ETL():
 
@@ -618,7 +620,7 @@ class ETL():
 
         
 
-
+#%%
 if __name__ == "__main__":
     etl = ETL()
 
@@ -628,7 +630,7 @@ if __name__ == "__main__":
 
     etl.LoadingCSVToDB(countryDF, guarantorDF, projectDF, loanDF)
 
-    etl.Dashboard(DownloadedFilePath)
+    etl.SendExcelDashboard(etl.Dashboard(DownloadedFilePath))
 
     
 #%%
