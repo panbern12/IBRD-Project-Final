@@ -4,8 +4,11 @@ import pandas as pd
 import datetime as dt 
 import email
 import imaplib
+from openpyxl import Workbook
 import os
 import sys
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import Border,Side,Font 
 import mysql.connector
 from sqlalchemy import create_engine
 
@@ -41,6 +44,8 @@ class ETL():
         Returns Filename
         """
         
+        global fileName
+
         self.connection.login(self.userName, self.password)
         self.connection.select('Inbox') # select which folder to search from in the mailbox
         response, data= self.connection.search(None,f'(FROM "{From}" SUBJECT "{Subject}" SENTON "{self.date}")') #Specify the search  criteria
@@ -225,311 +230,317 @@ class ETL():
 
         """ Loadin Data into Database """
         # Insert whole DataFrame into MySQL
-        country.to_sql('country', con = engine, if_exists = 'append', chunksize = 1000,index=False)
+        country.to_sql('country', con = self.engine, if_exists = 'append',index=False)
 
-        project.to_sql('project', con = engine, if_exists = 'append', chunksize = 1000,index=False)
+        project.to_sql('project', con = self.engine, if_exists = 'append',index=False)
 
-        guarantor.to_sql('guarantor', con = engine, if_exists = 'append', chunksize = 1000,index=False)
+        guarantor.to_sql('guarantor', con = self.engine, if_exists = 'append',index=False)
 
-        loan.to_sql('loan', con = engine, if_exists = 'append', chunksize = 1000,index=False)
+        loan.to_sql('loan', con = self.engine, if_exists = 'append',index=False)
+
+
  
+    def Dashboard(self, filename):
 
+        """ """
 
 
+        df = pd.read_csv(filename)
 
+        dashboardpath = "./dashboard/final_dashboard1.xlsx"
+            ####WORKING ON THE DASHBOARD############
 
+            ##### Data Accuracy Dashboard - Getting counts and missing values from the provided csv######
+        values=int(len(df['Loan Number']))
 
+        stats= pd.DataFrame()
 
+        stats['count']=df.count(0)
 
-#########################################WORKING ON THE DASHBOARD###############################
+        stats['missing_values']=[(values-x) for x in stats['count']]
 
-# ##### Data Accuracy Dashboard - Getting counts and missing values from the provided csv######
-values=int(len(df['Loan Number']))
+        stats.reset_index(inplace=True)
 
-stats= pd.DataFrame()
+        #getting summary statistics
+        stat=df.describe()
 
-stats['count']=df.count(0)
+        #transpose the data
+        stat=stat.T
 
-stats['missing_values']=[(values-x) for x in stats['count']]
+        #drop count column and reset index
+        stat.drop(['count'],inplace=True,axis=1)
 
-stats.reset_index(inplace=True)
+        stat.reset_index(inplace=True)
 
-#getting summary statistics
-stat=df.describe()
+        stats_final=pd.merge(stats,stat,how='left',on='index')
+            
+        ###########################DASHBOARD DATA AGREGATIONS###################
+        #Pick data from database
+        #######Total, Average, Minimum, Maximum #########
+        data=pd.read_sql("select processed_date,Original_Principal_Amount,Cancelled_Amount,Undisbursed_Amount,Disbursed_Amount,Repaid_to_IBRD,Due_to_IBRD,Borrowers_Obligation,Sold_3rd_Party,Repaid_3rd_Party,Due_3rd_Party,Loans_Held from loan",engine)
 
-#transpose the data
-stat=stat.T
+        #introducing the month column
+        data['processed_month']=data['processed_date'].dt.to_period('M').astype('str')
 
-#drop count column and reset index
-stat.drop(['count'],inplace=True,axis=1)
+        #drop processed date
+        data.drop(['processed_date'],inplace=True,axis=1)
 
-stat.reset_index(inplace=True)
+        #Make data agrregations
+        total=data.groupby(['processed_month']).sum()
+        total['category']='Total'
+        total.reset_index(inplace=True)
 
-stats_final=pd.merge(stats,stat,how='left',on='index')
-     
-###########################DASHBOARD DATA AGREGATIONS###################
-#Pick data from database
-#######Total, Average, Minimum, Maximum #########
-data=pd.read_sql("select processed_date,Original_Principal_Amount,Cancelled_Amount,Undisbursed_Amount,Disbursed_Amount,Repaid_to_IBRD,Due_to_IBRD,Borrowers_Obligation,Sold_3rd_Party,Repaid_3rd_Party,Due_3rd_Party,Loans_Held from loan",engine)
+        mean=data.groupby(['processed_month']).mean()
+        mean['category']='Average'
+        mean.reset_index(inplace=True)
 
-#introducing the month column
-data['processed_month']=data['processed_date'].dt.to_period('M').astype('str')
+        min_=data.groupby(['processed_month']).min()
+        min_['category']='Min'
+        min_.reset_index(inplace=True)
 
-#drop processed date
-data.drop(['processed_date'],inplace=True,axis=1)
+        median=data.groupby(['processed_month']).median()
+        median['category']='Median'
+        median.reset_index(inplace=True)
 
-#Make data agrregations
-total=data.groupby(['processed_month']).sum()
-total['category']='Total'
-total.reset_index(inplace=True)
+        max_=data.groupby(['processed_month']).max()
+        max_['category']='Max'
+        max_.reset_index(inplace=True)
 
-mean=data.groupby(['processed_month']).mean()
-mean['category']='Average'
-mean.reset_index(inplace=True)
+        #appending the various dataframes
+        final=pd.concat([total,mean],ignore_index=True)
+        final=pd.concat([final,min_],ignore_index=True)
+        final=pd.concat([final,median],ignore_index=True)
+        final=pd.concat([final,max_],ignore_index=True)
 
-min_=data.groupby(['processed_month']).min()
-min_['category']='Min'
-min_.reset_index(inplace=True)
+        ##set category as index and stack dataframe
+        final.set_index('category',inplace=True)
 
-median=data.groupby(['processed_month']).median()
-median['category']='Median'
-median.reset_index(inplace=True)
+        final=pd.DataFrame(final.stack())
 
-max_=data.groupby(['processed_month']).max()
-max_['category']='Max'
-max_.reset_index(inplace=True)
+        final.reset_index(inplace=True)
 
-#appending the various dataframes
-final=pd.concat([total,mean],ignore_index=True)
-final=pd.concat([final,min_],ignore_index=True)
-final=pd.concat([final,median],ignore_index=True)
-final=pd.concat([final,max_],ignore_index=True)
+        #creating the column names
+        names=final.iloc[0].to_list()
 
-##set category as index and stack dataframe
-final.set_index('category',inplace=True)
+        names[0:0]=['Category']
+        names[1:1]=['Field']
 
-final=pd.DataFrame(final.stack())
+        names.pop(2)
+        names.pop(2)
 
-final.reset_index(inplace=True)
+        final.columns=names
 
-#creating the column names
-names=final.iloc[0].to_list()
+        final=final.loc[~final['Field'].isin(['processed_month'])]
 
-names[0:0]=['Category']
-names[1:1]=['Field']
+        ####################################################
+        ### KPI --- Number of Projects########
 
-names.pop(2)
-names.pop(2)
+        dash1=pd.read_sql("select count(distinct Project_ID) No_of_projects from Project",engine)
 
-final.columns=names
+        ####################
+        ### KPI --- Loan Status Summary######
 
-final=final.loc[~final['Field'].isin(['processed_month'])]
+        dash2=pd.read_sql("""select Loan_Status, count(distinct Loan_Number) No_of_loans from loan
+                        group by Loan_Status Order by count(Loan_Number) Desc""", engine)
 
-####################################################
-### KPI --- Number of Projects########
+        ###############
+        ### KPI --- Top 10 Countries with Loans ######
+        dash3=pd.read_sql("""select country, sum(Disbursed_Amount) loans_held from
+                        (select distinct country, Disbursed_Amount from country c
+                        inner join loan l on c.country_code = l.country_code)s 
+                        group by country order by sum(Disbursed_Amount) desc"""
+                        , engine)
 
-dash1=pd.read_sql("select count(distinct Project_ID) No_of_projects from Project",engine)
+        ##############
+        ### KPI --- Percentage Repayment ########
+        dash4=pd.read_sql("""select Sum(Repaid_to_IBRD+Repaid_3rd_Party)/Sum(Disbursed_Amount) Repaid_portion 
+                        from loan""",engine)
+                        
+        ##############
+        ### KPI --- Total Number of Loans Given out ####
+        dash5=pd.read_sql("""select COUNT(distinct loan_Number) loans from loan""",engine)
 
-####################
-### KPI --- Loan Status Summary######
+        #############
+        #### KPI --- Total Number of Approved Loans ###
 
-dash2=pd.read_sql("""select Loan_Status, count(distinct Loan_Number) No_of_loans from loan
-                  group by Loan_Status Order by count(Loan_Number) Desc""", engine)
+        dash6=pd.read_sql("""select count(distinct Loan_Number) Approved_loans from loan where Loan_Status = 'Approved'
+                            """, engine)
+        #############
+        #### KPI --- % of Approved Loans of Total Loans ###             
+        dash10['Percent_Approved_Loans'] = dash6['Approved_loans']/dash5['loans']
 
-###############
-### KPI --- Top 10 Countries with Loans ######
-dash3=pd.read_sql("""select country, sum(Disbursed_Amount) loans_held from
-                  (select distinct country, Disbursed_Amount from country c
-                  inner join loan l on c.country_code = l.country_code)s 
-                   group by country order by sum(Disbursed_Amount) desc"""
-                  , engine)
+        #############
+        #### KPI --- Total Number of Repaid Loans ###
 
-##############
-### KPI --- Percentage Repayment ########
-dash4=pd.read_sql("""select Sum(Repaid_to_IBRD+Repaid_3rd_Party)/Sum(Disbursed_Amount) Repaid_portion 
-                  from loan""",engine)
-                  
-##############
-### KPI --- Total Number of Loans Given out ####
-dash5=pd.read_sql("""select COUNT(distinct loan_Number) loans from loan""",engine)
+        dash7=pd.read_sql("""select count(distinct Loan_Number) Repaid_loans from loan where Loan_Status like 'Repaid%'
+                            """, engine)
+                            
+        #############
+        #### KPI --- Total Number of Cancelled Loans ###
 
-#############
-#### KPI --- Total Number of Approved Loans ###
-
-dash6=pd.read_sql("""select count(distinct Loan_Number) Approved_loans from loan where Loan_Status = 'Approved'
-                      """, engine)
-#############
-#### KPI --- % of Approved Loans of Total Loans ###             
-dash10['Percent_Approved_Loans'] = dash6['Approved_loans']/dash5['loans']
-
-#############
-#### KPI --- Total Number of Repaid Loans ###
-
-dash7=pd.read_sql("""select count(distinct Loan_Number) Repaid_loans from loan where Loan_Status like 'Repaid%'
-                      """, engine)
-                      
-#############
-#### KPI --- Total Number of Cancelled Loans ###
-
-dash8=pd.read_sql("""select count(distinct Loan_Number) Cancelled_loans from loan where Loan_Status like 'cancel%'
-                      """, engine)
+        dash8=pd.read_sql("""select count(distinct Loan_Number) Cancelled_loans from loan where Loan_Status like 'cancel%'
+                            """, engine)
 
-
-#############
-#### KPI --- Total Borrowers Obligation ###
 
-dash9=pd.read_sql("""select Sum(Borrowers_Obligation) Borrowers_Obligation from loan """, engine)
-
-from openpyxl import Workbook
-wb = Workbook()
+        #############
+        #### KPI --- Total Borrowers Obligation ###
 
-ws = wb.create_sheet("Loan_KPI_Dashboard") 
+        dash9=pd.read_sql("""select Sum(Borrowers_Obligation) Borrowers_Obligation from loan """, engine)
 
-ws1 = wb.create_sheet("Data_Aggregations") 
 
-ws2 = wb.create_sheet("Data_Quality_Statistics") 
+        wb = Workbook()
 
-std=wb['Sheet']
-wb.remove(std)
+        ws = wb.create_sheet("Loan_KPI_Dashboard") 
 
-##save data frame to sheet
+        ws1 = wb.create_sheet("Data_Aggregations") 
 
-#### save data Dashboard Data Aggregation to sheet 2
-from openpyxl.utils.dataframe import dataframe_to_rows
-#sheet 2        
-rows = dataframe_to_rows(final)
+        ws2 = wb.create_sheet("Data_Quality_Statistics") 
 
-for r_idx, row in enumerate(rows, 1):
-    for c_idx, value in enumerate(row, 1):
-         ws1.cell(row=r_idx, column=c_idx, value=value)
-         
-# save data from Data Quality statistics to  Sheet 3#####         
-rows = dataframe_to_rows(stats_final)
+        std=wb['Sheet']
+        wb.remove(std)
 
-for r_idx, row in enumerate(rows, 1):
-    for c_idx, value in enumerate(row, 1):
-         ws2.cell(row=r_idx, column=c_idx, value=value)
+        ##save data frame to sheet
 
-wb.save(r'C:\Users\kagimub\Desktop\IBRD Project\final_dashboard1.xlsx')
+        #### save data Dashboard Data Aggregation to sheet 2
 
+        #sheet 2        
+        rows = dataframe_to_rows(final)
 
+        for r_idx, row in enumerate(rows, 1):
+            for c_idx, value in enumerate(row, 1):
+                ws1.cell(row=r_idx, column=c_idx, value=value)
+                
+        # save data from Data Quality statistics to  Sheet 3#####         
+        rows = dataframe_to_rows(stats_final)
 
-from openpyxl import load_workbook 
-wb = load_workbook(r'C:\Users\kagimub\Desktop\IBRD Project\final_dashboard1.xlsx')
+        for r_idx, row in enumerate(rows, 1):
+            for c_idx, value in enumerate(row, 1):
+                ws2.cell(row=r_idx, column=c_idx, value=value)
 
-ws =wb['Loan_KPI_Dashboard']
-ws2 = wb['Data_Aggregations']
-ws3 = wb['Data_Quality_Statistics']
-        
-###############FORMATING DATA AGGREGATIONS AND STATISTICS SHEET ##########
-#drop colum n rows
-ws3.delete_rows(2)
-ws3.delete_cols(1)
+        wb.save(dashboardpath)
 
-ws2.delete_rows(2)
-ws2.delete_cols(1)
 
-ws3['A1']='Category'
 
-from openpyxl.styles import Border,Side,Font 
-thin = Side(border_style="thin", color="000000")
+        wb = load_workbook(dashboardpath)
 
-###########data aggregations table#######
-ws2.insert_rows(1,1)
-ws2.merge_cells('A1:C1') 
-ws2.cell(row=1, column=1).value = 'DATA AGGREGATION'
-ws2.cell(row=1, column=1).font  = Font(b=True, color="000000")
+        ws =wb['Loan_KPI_Dashboard']
+        ws2 = wb['Data_Aggregations']
+        ws3 = wb['Data_Quality_Statistics']
+                
+        ###############FORMATING DATA AGGREGATIONS AND STATISTICS SHEET ##########
+        #drop colum n rows
+        ws3.delete_rows(2)
+        ws3.delete_cols(1)
 
-max_row = ws2.max_row +1
-max_col = ws2.max_column +1
-for row in range(3,max_row):
-    for col in range(2,max_col):
-        ws2.cell(row,col).style='Comma [0]'
-        
-for row in range(2,max_row):
-    for col in range(1,max_col):
-        ws2.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        ws2.delete_rows(2)
+        ws2.delete_cols(1)
 
-###########statistics table#######
-ws3.insert_rows(1,1)
-ws3.merge_cells('A1:J1') 
-ws3.cell(row=1, column=1).value = 'STATISTICS AND DATA QUALITY'
-ws3.cell(row=1, column=1).font  = Font(b=True, color="000000")
+        ws3['A1']='Category'
 
-max_row = ws3.max_row +1
-max_col = ws3.max_column +1
-for row in range(3,max_row):
-    for col in range(2,max_col):
-        ws3.cell(row,col).style='Comma [0]'
-        
-for row in range(2,max_row):
-    for col in range(1,max_col):
-        ws3.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
+        thin = Side(border_style="thin", color="000000")
 
-##########DASHBOARD SHEET###################
-####Total Loans#####
-ws['B2']='Total loans'
+        ###########data aggregations table#######
+        ws2.insert_rows(1,1)
+        ws2.merge_cells('A1:C1') 
+        ws2.cell(row=1, column=1).value = 'DATA AGGREGATION'
+        ws2.cell(row=1, column=1).font  = Font(b=True, color="000000")
 
-ws['B3']=dash5.loc[0].at['loans']
+        max_row = ws2.max_row +1
+        max_col = ws2.max_column +1
+        for row in range(3,max_row):
+            for col in range(2,max_col):
+                ws2.cell(row,col).style='Comma [0]'
+                
+        for row in range(2,max_row):
+            for col in range(1,max_col):
+                ws2.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
-for row in range(2,4):
-    for col in range(2,3):
-        ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        ###########statistics table#######
+        ws3.insert_rows(1,1)
+        ws3.merge_cells('A1:J1') 
+        ws3.cell(row=1, column=1).value = 'STATISTICS AND DATA QUALITY'
+        ws3.cell(row=1, column=1).font  = Font(b=True, color="000000")
 
-####Total Projects #####
-ws['D2']='Total Projects'
+        max_row = ws3.max_row +1
+        max_col = ws3.max_column +1
+        for row in range(3,max_row):
+            for col in range(2,max_col):
+                ws3.cell(row,col).style='Comma [0]'
+                
+        for row in range(2,max_row):
+            for col in range(1,max_col):
+                ws3.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
-ws['D3']=dash1.loc[0].at['No_of_projects']
 
-for row in range(2,4):
-    for col in range(4,5):
-        ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        ##########DASHBOARD SHEET###################
+        ####Total Loans#####
+        ws['B2']='Total loans'
 
-####Repaid Percentage ####
-ws['F2']='Repaid_portion '
+        ws['B3']=dash5.loc[0].at['loans']
 
-ws['F3']=dash4.loc[0].at['Repaid_portion']
+        for row in range(2,4):
+            for col in range(2,3):
+                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
-ws.cell(3,6).style='Percent'
+        ####Total Projects #####
+        ws['D2']='Total Projects'
 
-for row in range(2,4):
-    for col in range(6,7):
-        ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        ws['D3']=dash1.loc[0].at['No_of_projects']
 
+        for row in range(2,4):
+            for col in range(4,5):
+                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
+        ####Repaid Percentage ####
+        ws['F2']='Repaid_portion '
 
-#######HERE ######
-ws['B5']='Approved loans'
+        ws['F3']=dash4.loc[0].at['Repaid_portion']
 
-ws['B6']=dash6.loc[0].at['Approved_loans']
+        ws.cell(3,6).style='Percent'
 
-for row in range(5,7):
-    for col in range(2,3):
-        ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        for row in range(2,4):
+            for col in range(6,7):
+                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
-ws['D5']='Approved Loan Portion (%)'
 
-ws['D6']=dash10.loc[0].at['Percent_Approved_Loans']
-ws.cell(6,4).style='Percent'
 
+        #######HERE ######
+        ws['B5']='Approved loans'
 
-for row in range(5,7):
-    for col in range(4,5):
-        ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        ws['B6']=dash6.loc[0].at['Approved_loans']
 
-ws['F5']='Overall Borrowers Obligation '
+        for row in range(5,7):
+            for col in range(2,3):
+                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
-ws['F6']=dash9.loc[0].at['Borrowers_Obligation']
-ws.cell(6,6).style.format('{3:,}')
+        ws['D5']='Approved Loan Portion (%)'
 
+        ws['D6']=dash10.loc[0].at['Percent_Approved_Loans']
+        ws.cell(6,4).style='Percent'
 
 
-for row in range(5,7):
-    for col in range(6,7):
-        ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        for row in range(5,7):
+            for col in range(4,5):
+                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
+        ws['F5']='Overall Borrowers Obligation '
 
-wb.save(r'C:\Users\kagimub\Desktop\IBRD Project\final_dashboard1.xlsx')
+        ws['F6']=dash9.loc[0].at['Borrowers_Obligation']
+        ws.cell(6,6).style.format('{3:,}')
+
+
+
+        for row in range(5,7):
+            for col in range(6,7):
+                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+
+
+        wb.save(dashboardpath)
+
+
+
+
+        return dashboardpath
 
 # %%
