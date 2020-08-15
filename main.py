@@ -1,12 +1,15 @@
 #%%
 #Import packages
 import pandas as pd
+from envelopes import Envelope, GMailSMTP
 import datetime as dt 
+import xlsxwriter
 import email
 import imaplib
 from openpyxl import Workbook
 import os
 import sys
+from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.styles import Border,Side,Font 
 import mysql.connector
@@ -32,9 +35,6 @@ class ETL():
                        .format(user="root",
                                pw="",
                                db="IBRD"))
-
-        
-
 
     def DownloadingEmailAttachment(self, From, Subject):
 
@@ -70,7 +70,7 @@ class ETL():
                     else:
                             print("no attachment")
 
-            return fileName
+            return filePath
 
 
     def DataProcessing(self, filename):
@@ -146,6 +146,25 @@ class ETL():
         loan.insert(0,'processed_date',dt.datetime.today())
 
 
+        guarantor.dropna(subset=['Guarantor'], inplace=True)
+
+        project.dropna(subset=['Project_ID'], inplace=True)
+
+        country.dropna(subset=['Country_Code'], inplace=True)
+
+
+
+
+        # Check if data is already in DB
+        countryIDs = pd.read_sql('select distinct Country_Code from country', self.engine)
+        projectIDs = pd.read_sql('select distinct Project_ID from project', self.engine)
+        guarantorIDs = pd.read_sql('select distinct Guarantor_Country_Code from guarantor', self.engine)
+        loanDate  = pd.read_sql('select  processed_date from loan', self.engine)
+
+        country = country[~country['Country_Code'].isin(countryIDs.Country_Code)]
+        project = project[~project['Project_ID'].isin(projectIDs.Project_ID)]
+        loan = loan[loan['Loan_Number'].isin(loanDate.processed_date)]
+        guarantor = guarantor[~guarantor['Guarantor_Country_Code'].isin(guarantorIDs.Guarantor_Country_Code)]
 
         return country, guarantor, project, loan
 
@@ -157,7 +176,10 @@ class ETL():
         mycursor = self.mydb.cursor()
 
         # create MYSQL DataBase
-        mycursor.execute("CREATE DATABASE IBRD")
+        
+
+        
+        mycursor.execute("CREATE DATABASE IF NOT EXISTS IBRD")
 
         mycursor.execute("USE IBRD")
 
@@ -226,17 +248,20 @@ class ETL():
     
 #mycursor.execute("select count(Loan_Number) from loan")
 
-    def LoadingCSVToDB(self, country, project, guarantor, loan):
+    def LoadingCSVToDB(self, country, guarantor, project, loan):
 
         """ Loadin Data into Database """
         # Insert whole DataFrame into MySQL
-        country.to_sql('country', con = self.engine, if_exists = 'append',index=False)
 
-        project.to_sql('project', con = self.engine, if_exists = 'append',index=False)
+        loan.to_sql('loan', con = self.engine, chunksize= 500, if_exists = 'append',index=False)
 
-        guarantor.to_sql('guarantor', con = self.engine, if_exists = 'append',index=False)
+        country.to_sql('country', con = self.engine, chunksize= 500,if_exists = 'append',index=False)
 
-        loan.to_sql('loan', con = self.engine, if_exists = 'append',index=False)
+        project.to_sql('project', con = self.engine,chunksize= 500, if_exists = 'append',index=False)
+
+        guarantor.to_sql('guarantor', con = self.engine, chunksize= 500,if_exists = 'append',index=False)
+
+        
 
 
  
@@ -247,7 +272,7 @@ class ETL():
 
         df = pd.read_csv(filename)
 
-        dashboardpath = "./dashboard/final_dashboard1.xlsx"
+        dashboardpath = "./data/excel_dashboard/final_dashboard1.xlsx"
             ####WORKING ON THE DASHBOARD############
 
             ##### Data Accuracy Dashboard - Getting counts and missing values from the provided csv######
@@ -277,7 +302,7 @@ class ETL():
         ###########################DASHBOARD DATA AGREGATIONS###################
         #Pick data from database
         #######Total, Average, Minimum, Maximum #########
-        data=pd.read_sql("select processed_date,Original_Principal_Amount,Cancelled_Amount,Undisbursed_Amount,Disbursed_Amount,Repaid_to_IBRD,Due_to_IBRD,Borrowers_Obligation,Sold_3rd_Party,Repaid_3rd_Party,Due_3rd_Party,Loans_Held from loan",engine)
+        data=pd.read_sql("select processed_date,Original_Principal_Amount,Cancelled_Amount,Undisbursed_Amount,Disbursed_Amount,Repaid_to_IBRD,Due_to_IBRD,Borrowers_Obligation,Sold_3rd_Party,Repaid_3rd_Party,Due_3rd_Party,Loans_Held from loan",self.engine)
 
         #introducing the month column
         data['processed_month']=data['processed_date'].dt.to_period('M').astype('str')
@@ -335,13 +360,13 @@ class ETL():
         ####################################################
         ### KPI --- Number of Projects########
 
-        dash1=pd.read_sql("select count(distinct Project_ID) No_of_projects from Project",engine)
+        dash1=pd.read_sql("select count(distinct Project_ID) No_of_projects from Project",self.engine)
 
         ####################
         ### KPI --- Loan Status Summary######
 
         dash2=pd.read_sql("""select Loan_Status, count(distinct Loan_Number) No_of_loans from loan
-                        group by Loan_Status Order by count(Loan_Number) Desc""", engine)
+                        group by Loan_Status Order by count(Loan_Number) Desc""", self.engine)
 
         ###############
         ### KPI --- Top 10 Countries with Loans ######
@@ -349,43 +374,44 @@ class ETL():
                         (select distinct country, Disbursed_Amount from country c
                         inner join loan l on c.country_code = l.country_code)s 
                         group by country order by sum(Disbursed_Amount) desc"""
-                        , engine)
+                        , self.engine)
 
         ##############
         ### KPI --- Percentage Repayment ########
         dash4=pd.read_sql("""select Sum(Repaid_to_IBRD+Repaid_3rd_Party)/Sum(Disbursed_Amount) Repaid_portion 
-                        from loan""",engine)
+                        from loan""",self.engine)
                         
         ##############
         ### KPI --- Total Number of Loans Given out ####
-        dash5=pd.read_sql("""select COUNT(distinct loan_Number) loans from loan""",engine)
+        dash5=pd.read_sql("""select COUNT(distinct loan_Number) loans from loan""",self.engine)
 
         #############
         #### KPI --- Total Number of Approved Loans ###
 
         dash6=pd.read_sql("""select count(distinct Loan_Number) Approved_loans from loan where Loan_Status = 'Approved'
-                            """, engine)
+                            """, self.engine)
         #############
-        #### KPI --- % of Approved Loans of Total Loans ###             
+        #### KPI --- % of Approved Loans of Total Loans ###    
+        dash10 = pd.DataFrame()         
         dash10['Percent_Approved_Loans'] = dash6['Approved_loans']/dash5['loans']
 
         #############
         #### KPI --- Total Number of Repaid Loans ###
 
         dash7=pd.read_sql("""select count(distinct Loan_Number) Repaid_loans from loan where Loan_Status like 'Repaid%'
-                            """, engine)
+                            """, self.engine)
                             
         #############
         #### KPI --- Total Number of Cancelled Loans ###
 
         dash8=pd.read_sql("""select count(distinct Loan_Number) Cancelled_loans from loan where Loan_Status like 'cancel%'
-                            """, engine)
+                            """, self.engine)
 
 
         #############
         #### KPI --- Total Borrowers Obligation ###
 
-        dash9=pd.read_sql("""select Sum(Borrowers_Obligation) Borrowers_Obligation from loan """, engine)
+        dash9=pd.read_sql("""select Sum(Borrowers_Obligation) Borrowers_Obligation from loan """, self.engine)
 
 
         wb = Workbook()
@@ -540,7 +566,69 @@ class ETL():
 
 
 
+        # wbk = xlsxwriter.Workbook(dashboardpath)
+        # ws4 = wbk.get_worksheet_by_name('Loan_KPI_Dashboard')
+
+        # ws4.write('D1', 'Loan_KPI_Dashboard') 
+        # ws4.hide_gridlines(2)
+
+        # # Create a Pandas Excel writer using XlsxWriter as the engine.
+        # writer = pd.ExcelWriter(dashboardpath, engine='xlsxwriter')
+
+        # chart1 = wbk.add_chart({'type': 'column'})
+
+        # dash2.to_excel(writer, sheet_name='Loan_KPI_Dashboard',
+        #         startrow=9, startcol=2, index=False)
+
+        # chart1.add_series({ 'Loan_status': '=Sheet1!$B$10:$B$21','values':     '=Sheet1!$C$10:$C$21',  })
+
+        # # Add a chart title and some axis labels.
+        # chart1.set_title ({'Number of loans per loan status'})
+        # chart1.set_x_axis({'Loan_Status'})
+        # chart1.set_y_axis({'No_of_loans'})
+
+        # # Insert the chart into the worksheet (with an offset).
+        # ws4.insert_chart('D10', chart1)#, {'x_offset': 25, 'y_offset': 10})
+
+        # # Apply a conditional format to the cell range.
+        # ws4.conditional_format('c10:c21', {'type': '3_color_scale'})
+        # ws4.conditional_format( 'B9:C21' , { 'type' : 'no_blanks' , 'format' : 'border_format'})
+
+        # wbk.set_size(1200, 800)
+        # wbk.save(dashboardpath)
+        # wbk.close()
+
 
         return dashboardpath
 
-# %%
+
+    def SendExcelDashboard(self, Dashbardpath):
+
+
+        envelope = Envelope(
+            from_addr=(u'bkagimu12@gmail.com', u'Bernard Kagimu'),
+            to_addr=['raynermukiza@gmail.com', 'pandolkb@gmail.com'],
+            subject=u'Dashboard',
+            text_body=u"I'm a helicopter!"
+        )
+        envelope.add_attachment(Dashbardpath)
+
+        # Send the envelope using an ad-hoc connection...
+        envelope.send('smtp.googlemail.com',tls=True)
+
+        
+
+
+if __name__ == "__main__":
+    etl = ETL()
+
+    DownloadedFilePath = etl.DownloadingEmailAttachment('Bernard Kagimu', 'HELLO TEST MAIL')
+
+    countryDF, guarantorDF, projectDF, loanDF = etl.DataProcessing(DownloadedFilePath)
+
+    etl.LoadingCSVToDB(countryDF, guarantorDF, projectDF, loanDF)
+
+    etl.Dashboard(DownloadedFilePath)
+
+    
+#%%
