@@ -14,6 +14,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.styles import Border,Side,Font 
 import mysql.connector
 from sqlalchemy import create_engine
+from xlsxwriter.workbook import Workbook
 
 os.chdir('C:/Users/kagimub/Desktop/IBRD Project')
 
@@ -275,9 +276,397 @@ class ETL():
         df = pd.read_csv(filename)
 
         dashboardpath = "./data/excel_dashboard/final_dashboard1.xlsx"
-            ####WORKING ON THE DASHBOARD############
 
-            ##### Data Accuracy Dashboard - Getting counts and missing values from the provided csv######
+        wbk = Workbook(dashboardpath)
+        ####WORKING ON THE DASHBOARD############
+                
+        ### KPI --- Loan Status Summary######
+        dash1=pd.read_sql("select count(distinct Project_ID) No_of_projects from Project",self.engine)
+
+        dash2=pd.read_sql("""select Loan_Status, count(distinct Loan_Number) No_of_loans from loan
+                        group by Loan_Status Order by count(Loan_Number) Desc""", self.engine)
+                        
+        dash3=pd.read_sql("""select country, sum(Disbursed_Amount) loans_held from
+                        (select distinct country, Disbursed_Amount from country c
+                        inner join loan l on c.country_code = l.country_code)s 
+                        group by country order by sum(Disbursed_Amount) desc limit 10"""
+                        , self.engine)
+
+        dash4=pd.read_sql("""select Sum(Repaid_to_IBRD+Repaid_3rd_Party)/Sum(Disbursed_Amount) Repaid_portion 
+                        from loan""",self.engine)
+                        
+        dash5=pd.read_sql("""select COUNT(distinct loan_Number) loans from loan""",self.engine)
+
+        dash6=pd.read_sql("""select count(distinct Loan_Number) Approved_loans from loan where Loan_Status = 'Approved'
+                            """, self.engine)
+        dash10 = pd.DataFrame()         
+        dash10['Percent_Approved_Loans'] = dash6['Approved_loans']/dash5['loans']
+
+        dash7=pd.read_sql("""select count(distinct Loan_Number) Repaid_loans from loan where Loan_Status like 'Repaid%'
+                            """, self.engine)
+        dash8=pd.read_sql("""select count(distinct Loan_Number) Cancelled_loans from loan where Loan_Status like 'cancel%'
+                            """, self.engine)
+                            
+        dash9=pd.read_sql("select sum(Original_Principal_Amount) Total_Principal,sum(Cancelled_Amount) Total_Cancelled,sum(Undisbursed_Amount) Total_Undisbursed,sum(Disbursed_Amount) Total_Disbursed,sum(Repaid_to_IBRD) Total_Repaid_IBRD,sum(Due_to_IBRD) Total_Due_to_IBRD,sum(Borrowers_Obligation) Total_Borrowers_Obligation,Sum(Sold_3rd_Party) Total_Sold_3rd_Party,sum(Repaid_3rd_Party) Total_Repaid_3rd_Party,sum(Due_3rd_Party) Total_Due_3rd_Party,Sum(Loans_Held) Total_Loans_Held from loan",self.engine)
+
+
+        dash11=pd.read_sql("select avg(Original_Principal_Amount) avg_Principal,avg(Cancelled_Amount) avg_Cancelled,avg(Undisbursed_Amount) avg_Undisbursed,avg(Disbursed_Amount) avg_Disbursed,avg(Repaid_to_IBRD) avg_Repaid_IBRD,avg(Due_to_IBRD) avg_Due_to_IBRD,avg(Borrowers_Obligation) avg_Borrowers_Obligation,avg(Sold_3rd_Party) avg_Sold_3rd_Party,avg(Repaid_3rd_Party) avg_Repaid_3rd_Party,avg(Due_3rd_Party) avg_Due_3rd_Party,avg(Loans_Held) avg_Loans_Held from loan",self.engine)
+
+
+        ############loan status vs loans chart#####################
+
+       
+        #ws4 = wbk.get_worksheet_by_name('Loan_KPI_Dashboard')
+
+        ws4=wbk.add_worksheet('Loan_KPI_Dashboard')
+        ws3=wbk.add_worksheet('Data_Qlty_Stat_Dashboard')
+        ws2=wbk.add_worksheet('Data_Aggregation_Dashboard')
+
+        # Format cell borders via a configurable RxC box 
+        def draw_frame_border(workbook, worksheet, first_row, first_col, rows_count, cols_count,thickness=1):
+
+            if cols_count == 1 and rows_count == 1:
+                # whole cell
+                worksheet.conditional_format(first_row, first_col,
+                                            first_row, first_col,
+                                            {'type': 'formula', 'criteria': 'True',
+                                            'format': workbook.add_format({'top': thickness, 'bottom':thickness,
+                                                                            'left': thickness,'right':thickness})})    
+            elif rows_count == 1:
+                # left cap
+                worksheet.conditional_format(first_row, first_col,
+                                        first_row, first_col,
+                                        {'type': 'formula', 'criteria': 'True',
+                                        'format': workbook.add_format({'top': thickness, 'left': thickness,'bottom':thickness})})
+                # top and bottom sides
+                worksheet.conditional_format(first_row, first_col + 1,
+                                        first_row, first_col + cols_count - 2,
+                                        {'type': 'formula', 'criteria': 'True', 'format': workbook.add_format({'top': thickness,'bottom':thickness})})
+
+                # right cap
+                worksheet.conditional_format(first_row, first_col+ cols_count - 1,
+                                        first_row, first_col+ cols_count - 1,
+                                        {'type': 'formula', 'criteria': 'True',
+                                        'format': workbook.add_format({'top': thickness, 'right': thickness,'bottom':thickness})})
+
+            elif cols_count == 1:
+                # top cap
+                worksheet.conditional_format(first_row, first_col,
+                                        first_row, first_col,
+                                        {'type': 'formula', 'criteria': 'True',
+                                        'format': workbook.add_format({'top': thickness, 'left': thickness,'right':thickness})})
+
+                # left and right sides
+                worksheet.conditional_format(first_row + 1,              first_col,
+                                        first_row + rows_count - 2, first_col,
+                                        {'type': 'formula', 'criteria': 'True', 'format': workbook.add_format({'left': thickness,'right':thickness})})
+
+                # bottom cap
+                worksheet.conditional_format(first_row + rows_count - 1, first_col,
+                                        first_row + rows_count - 1, first_col,
+                                        {'type': 'formula', 'criteria': 'True',
+                                        'format': workbook.add_format({'bottom': thickness, 'left': thickness,'right':thickness})})
+
+            else:
+                # top left corner
+                worksheet.conditional_format(first_row, first_col,
+                                        first_row, first_col,
+                                        {'type': 'formula', 'criteria': 'True',
+                                        'format': workbook.add_format({'top': thickness, 'left': thickness})})
+
+                # top right corner
+                worksheet.conditional_format(first_row, first_col + cols_count - 1,
+                                        first_row, first_col + cols_count - 1,
+                                        {'type': 'formula', 'criteria': 'True',
+                                        'format': workbook.add_format({'top': thickness, 'right': thickness})})
+
+                # bottom left corner
+                worksheet.conditional_format(first_row + rows_count - 1, first_col,
+                                        first_row + rows_count - 1, first_col,
+                                        {'type': 'formula', 'criteria': 'True',
+                                        'format': workbook.add_format({'bottom': thickness, 'left': thickness})})
+
+                # bottom right corner
+                worksheet.conditional_format(first_row + rows_count - 1, first_col + cols_count - 1,
+                                        first_row + rows_count - 1, first_col + cols_count - 1,
+                                        {'type': 'formula', 'criteria': 'True',
+                                        'format': workbook.add_format({'bottom': thickness, 'right': thickness})})
+
+                # top
+                worksheet.conditional_format(first_row, first_col + 1,
+                                            first_row, first_col + cols_count - 2,
+                                            {'type': 'formula', 'criteria': 'True', 'format': workbook.add_format({'top': thickness})})
+
+                # left
+                worksheet.conditional_format(first_row + 1,              first_col,
+                                            first_row + rows_count - 2, first_col,
+                                            {'type': 'formula', 'criteria': 'True', 'format': workbook.add_format({'left': thickness})})
+
+                # bottom
+                worksheet.conditional_format(first_row + rows_count - 1, first_col + 1,
+                                            first_row + rows_count - 1, first_col + cols_count - 2,
+                                            {'type': 'formula', 'criteria': 'True', 'format': workbook.add_format({'bottom': thickness})})
+
+                # right
+                worksheet.conditional_format(first_row + 1,              first_col + cols_count - 1,
+                                            first_row + rows_count - 2, first_col + cols_count - 1,
+                                            {'type': 'formula', 'criteria': 'True', 'format': workbook.add_format({'right': thickness})})
+
+
+        # here we create bold format object .
+        bold = wbk.add_format({ 'bold' : 1 })
+        heading_format=wbk.add_format({ 'bold' : 1 })
+        heading_format.set_font_size(25)
+        number_format = wbk.add_format({'bold' : 1,'num_format': '#,##0'})
+        percentage_format = wbk.add_format({'bold' : 1,'num_format': '0.0%'})
+        merge_format = wbk.add_format({
+            'bold': 1,
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter',
+            'fg_color': 'yellow'})
+
+
+        # Merge 3 cells.
+        ws4.merge_range('E1:H1', 'Merged Range', merge_format)
+
+
+        #draw_frame_border(wbk, ws4, 2, 1, 2, 1,2)
+        ws4.write_row( 'B3' , ['Total Projects'], bold)
+        ws4.write_row( 'B4' , dash1.iloc[:,0], number_format)
+        for row in range(2,4):
+                draw_frame_border(wbk, ws4, row, 1, 1, 1,2)
+
+
+        #draw_frame_border(wbk, ws4, 2, 1, 2, 1,2)
+        ws4.write_row( 'D3' , ['Total Loans'], bold)
+        ws4.write_row( 'D4' , dash5.iloc[:,0], number_format)
+        for row in range(2,4):
+                draw_frame_border(wbk, ws4, row, 3, 1, 1,2)
+
+        ws4.write_row( 'F3' , ['Repaid Percentage'], bold)
+        ws4.write_row( 'F4' , dash4.iloc[:,0], percentage_format)
+        for row in range(2,4):
+                draw_frame_border(wbk, ws4, row, 5, 1, 1,2)
+
+        ws4.write_row( 'H3' , ['Approved Percentage'], bold)
+        ws4.write_row( 'H4' , dash10.iloc[:,0], percentage_format)
+        for row in range(2,4):
+                draw_frame_border(wbk, ws4, row, 7, 1, 1,2)
+
+        ws4.write_row( 'J3' , ['Repaid Loans'], bold)
+        ws4.write_row( 'J4' , dash7.iloc[:,0], number_format)
+        for row in range(2,4):
+                draw_frame_border(wbk, ws4, row, 9, 1, 1,2)
+
+        ws4.write_row( 'L3' , ['Cancelled Loans'], bold)
+        ws4.write_row( 'L4' , dash8.iloc[:,0], number_format)
+        for row in range(2,4):
+                draw_frame_border(wbk, ws4, row, 11, 1, 1,2)
+
+        ####
+        ws4.write_row( 'D6' , ['Total Principal'], bold)
+        ws4.write_row( 'D7' , dash9.iloc[:,0], number_format)
+        for row in range(5,7):
+                draw_frame_border(wbk, ws4, row, 3, 1, 1,2)
+
+        ws4.write_row( 'H6' , ['Total Cancelled'], bold)
+        ws4.write_row( 'H7' , dash9.iloc[:,1], number_format)
+        for row in range(5,7):
+                draw_frame_border(wbk, ws4, row, 7, 1, 1,2)
+
+        ws4.write_row( 'J6' , ['Total UnDisbursed'], bold)
+        ws4.write_row( 'J7' , dash9.iloc[:,2], number_format)
+        for row in range(5,7):
+                draw_frame_border(wbk, ws4, row, 9, 1, 1,2)
+
+        ws4.write_row( 'F6' , ['Total Disbursed'], bold)
+        ws4.write_row( 'F7' , dash9.iloc[:,3], number_format)
+        for row in range(5,7):
+                draw_frame_border(wbk, ws4, row, 5, 1, 1,2)
+
+        ws4.write_row( 'F9' , ['Repaid to IBRD'], bold)
+        ws4.write_row( 'F10' , dash9.iloc[:,4], number_format)
+        for row in range(8,10):
+                draw_frame_border(wbk, ws4, row, 5, 1, 1,2)
+
+        ws4.write_row( 'D9' , ['Due to IBRD'], bold)
+        ws4.write_row( 'D10' , dash9.iloc[:,5], number_format)
+        for row in range(8,10):
+                draw_frame_border(wbk, ws4, row, 3, 1, 1,2)
+
+        ws4.write_row( 'B9' , ['Borrowers Obligation'], bold)
+        ws4.write_row( 'B10' , dash9.iloc[:,6], number_format)
+        for row in range(8,10):
+                draw_frame_border(wbk, ws4, row, 1, 1, 1,2)
+
+        ws4.write_row( 'J9' , ['Sold 3rd_Party'], bold)
+        ws4.write_row( 'J10' , dash9.iloc[:,7], number_format)
+        for row in range(8,10):
+                draw_frame_border(wbk, ws4, row, 9, 1, 1,2)
+
+        ws4.write_row( 'H9' , ['Repaid 3rd_Party'], bold)
+        ws4.write_row( 'H10' , dash9.iloc[:,8], number_format)
+        for row in range(8,10):
+                draw_frame_border(wbk, ws4, row, 7, 1, 1,2)
+
+        ws4.write_row( 'L9' , ['Due 3rd_Party'], bold)
+        ws4.write_row( 'L10' , dash9.iloc[:,9], number_format)
+        for row in range(8,10):
+                draw_frame_border(wbk, ws4, row, 11, 1, 1,2)
+                
+        ws4.write_row( 'B6' , ['Total Loans Held'], bold)
+        ws4.write_row( 'B7' , dash9.iloc[:,10], number_format)
+        for row in range(5,7):
+                draw_frame_border(wbk, ws4, row, 1, 1, 1,2)
+
+
+        ####
+        ws4.write_row( 'D13' , ['AVG Principal'], bold)
+        ws4.write_row( 'D14' , dash11.iloc[:,0], number_format)
+        for row in range(12,14):
+                draw_frame_border(wbk, ws4, row, 3, 1, 1,2)
+
+        ws4.write_row( 'H13' , ['AVG Cancelled'], bold)
+        ws4.write_row( 'H14' , dash11.iloc[:,1], number_format)
+        for row in range(12,14):
+                draw_frame_border(wbk, ws4, row, 7, 1, 1,2)
+
+        ws4.write_row( 'J13' , ['AVG UnDisbursed'], bold)
+        ws4.write_row( 'J14' , dash11.iloc[:,2], number_format)
+        for row in range(12,14):
+                draw_frame_border(wbk, ws4, row, 9, 1, 1,2)
+
+        ws4.write_row( 'F13' , ['AVG Disbursed'], bold)
+        ws4.write_row( 'F14' , dash11.iloc[:,3], number_format)
+        for row in range(12,14):
+                draw_frame_border(wbk, ws4, row, 5, 1, 1,2)
+
+        ws4.write_row( 'F17' , ['AVG Repaid to IBRD'], bold)
+        ws4.write_row( 'F18' , dash11.iloc[:,4], number_format)
+        for row in range(16,18):
+                draw_frame_border(wbk, ws4, row, 5, 1, 1,2)
+
+        ws4.write_row( 'D17' , ['AVG Due to IBRD'], bold)
+        ws4.write_row( 'D18' , dash11.iloc[:,5], number_format)
+        for row in range(16,18):
+                draw_frame_border(wbk, ws4, row, 3, 1, 1,2)
+
+        ws4.write_row( 'B17' , ['AVG Borrowers Obligation'], bold)
+        ws4.write_row( 'B18' , dash11.iloc[:,6], number_format)
+        for row in range(16,18):
+                draw_frame_border(wbk, ws4, row, 1, 1, 1,2)
+                
+        ws4.write_row( 'J17' , ['AVG Sold 3rd_Party'], bold)
+        ws4.write_row( 'J18' , dash11.iloc[:,7], number_format)
+        for row in range(16,18):
+                draw_frame_border(wbk, ws4, row, 9, 1, 1,2)
+
+        ws4.write_row( 'H17' , ['AVG Repaid 3rd_Party'], bold)
+        ws4.write_row( 'H18' , dash11.iloc[:,8], number_format)
+        for row in range(16,18):
+                draw_frame_border(wbk, ws4, row, 7, 1, 1,2)
+
+        ws4.write_row( 'L17' , ['AVG Due 3rd_Party'], bold)
+        ws4.write_row( 'L18' , dash11.iloc[:,9], number_format)
+        for row in range(16,18):
+                draw_frame_border(wbk, ws4, row, 11, 1, 1,2)
+
+        ws4.write_row( 'B13' , ['AVG Loans Held'], bold)
+        ws4.write_row( 'B14' , dash11.iloc[:,10], number_format)
+        for row in range(12,14):
+                draw_frame_border(wbk, ws4, row, 1, 1, 1,2)
+
+
+        #making the heading
+        ws4.write_row( 'E1' , ['IBRD LOAN KPI Dashboard'], heading_format)
+
+        #ws4.write(0,4, 'Loan_KPI_Dashboard')
+        #Removing gridlines
+        ws4.hide_gridlines(2)
+
+        # create a data list .
+        headings = [ 'Loan Status' , 'number']
+
+        ####
+        heading2 = [ 'Country' , ' Loan Held']
+
+        # Write a row of data starting from 'A1'
+        # with bold format .
+        ws4.write_row( 'B38' , heading2, bold)
+
+        # Write a column of data starting from
+        # 'A2', 'B2', 'C2' respectively .
+        ws4.write_column( 'B39' , dash3.iloc[:,0], number_format)
+        ws4.write_column( 'C39' , dash3.iloc[:,1], number_format)
+
+        for col in range(1,3): 
+            for row in range(37,48):
+                draw_frame_border(wbk, ws4, row, col, 1, 1,2)
+
+        #Adding a chart
+        chart2 = wbk.add_chart({'type': 'column'})
+
+        #'name' : '= Loan_KPI_Dashboard !$A$3' ,
+        chart2.add_series({
+            'name' : '= Loan_KPI_Dashboard !$A$3' ,
+            'categories': '=Loan_KPI_Dashboard!$B$39:$B$49',
+            'values':     '=Loan_KPI_Dashboard!$C$39:$C$49'
+        })
+
+        # Insert the chart into the worksheet (with an offset).
+        ws4.insert_chart('E38', chart2)#, {'x_offset': 25, 'y_offset': 10})
+
+        # Add a chart title and some axis labels.
+        chart2.set_title({'name' :'Loans Held per Country'})
+        chart2.set_x_axis({'name' :'Country'})
+        chart2.set_y_axis({'name' :'Total Loan Held'})
+
+        ####
+
+        # Write a row of data starting from 'A1'
+        # with bold format .
+        ws4.write_row( 'B21' , headings, bold)
+
+        # Write a column of data starting from
+        # 'A2', 'B2', 'C2' respectively .
+        ws4.write_column( 'B22' , dash2.iloc[:,0], number_format)
+        ws4.write_column( 'C22' , dash2.iloc[:,1], number_format)
+
+        for col in range(1,3): 
+            for row in range(20,32):
+                draw_frame_border(wbk, ws4, row, col, 1, 1,2)
+                
+        #Adding a chart
+        chart1 = wbk.add_chart({'type': 'column'})
+
+        #'name' : '= Loan_KPI_Dashboard !$A$3' ,
+        chart1.add_series({
+            'name' : '= Loan_KPI_Dashboard !$A$3' ,
+            'categories': '=Loan_KPI_Dashboard!$B$22:$B$32',
+            'values':     '=Loan_KPI_Dashboard!$C$22:$C$32'
+        })
+
+
+        # Insert the chart into the worksheet (with an offset).
+        ws4.insert_chart('E21', chart1)#, {'x_offset': 25, 'y_offset': 10})
+
+        # Add a chart title and some axis labels.
+        chart1.set_title({'name' :'Number of loans per loan status'})
+        chart1.set_x_axis({'name' :'Loan_Status'})
+        chart1.set_y_axis({'name' :'No_of_loans'})
+
+
+        # Apply a conditional format to the cell range.
+        ws4.conditional_format('C22:C32', {'type': '3_color_scale'})
+        ws4.conditional_format('C39:C49', {'type': '3_color_scale'})
+        #ws4.conditional_format('A3:B14' , { 'type' : 'no_blanks' , 'format' : 'border_format'})
+                    
+
+        ###
+        #########################################WORKING ON THE DASHBOARD###############################
+
+        # ##### Data Accuracy Dashboard - Getting counts and missing values from the provided csv######
         values=int(len(df['Loan Number']))
 
         stats= pd.DataFrame()
@@ -300,6 +689,8 @@ class ETL():
         stat.reset_index(inplace=True)
 
         stats_final=pd.merge(stats,stat,how='left',on='index')
+
+        stats_final.fillna(0,inplace=True)
             
         ###########################DASHBOARD DATA AGREGATIONS###################
         #Pick data from database
@@ -359,247 +750,53 @@ class ETL():
 
         final=final.loc[~final['Field'].isin(['processed_month'])]
 
-        ####################################################
-        ### KPI --- Number of Projects########
+        ###         
 
-        dash1=pd.read_sql("select count(distinct Project_ID) No_of_projects from Project",self.engine)
+        #making the heading
+        ws2.write_row( 'E1' , ['IBRD DATA AGGREGATION Dashboard'], heading_format)
+        ws3.write_row( 'E1' , ['IBRD DATA QUALITY STATISTICS Dashboard'], heading_format)
 
-        ####################
-        ### KPI --- Loan Status Summary######
+        #ws4.write(0,4, 'Loan_KPI_Dashboard')
+        #Removing gridlines
+        ws2.hide_gridlines(2)
 
-        dash2=pd.read_sql("""select Loan_Status, count(distinct Loan_Number) No_of_loans from loan
-                        group by Loan_Status Order by count(Loan_Number) Desc""", self.engine)
+        # create a data list .
+        heading3 = final.columns
 
-        ###############
-        ### KPI --- Top 10 Countries with Loans ######
-        dash3=pd.read_sql("""select country, sum(Disbursed_Amount) loans_held from
-                        (select distinct country, Disbursed_Amount from country c
-                        inner join loan l on c.country_code = l.country_code)s 
-                        group by country order by sum(Disbursed_Amount) desc"""
-                        , self.engine)
+        # Write a row of data starting from 'A1'
+        # with bold format .
+        ws2.write_row( 1,0, heading3, bold)
 
-        ##############
-        ### KPI --- Percentage Repayment ########
-        dash4=pd.read_sql("""select Sum(Repaid_to_IBRD+Repaid_3rd_Party)/Sum(Disbursed_Amount) Repaid_portion 
-                        from loan""",self.engine)
-                        
-        ##############
-        ### KPI --- Total Number of Loans Given out ####
-        dash5=pd.read_sql("""select COUNT(distinct loan_Number) loans from loan""",self.engine)
+        # Write a column of data starting from
+        # 'A2', 'B2', 'C2' respectively .
+        for col in range(0,len(heading3)):
+            ws2.write_column( 2,col , final.iloc[:,col], number_format)
 
-        #############
-        #### KPI --- Total Number of Approved Loans ###
-
-        dash6=pd.read_sql("""select count(distinct Loan_Number) Approved_loans from loan where Loan_Status = 'Approved'
-                            """, self.engine)
-        #############
-        #### KPI --- % of Approved Loans of Total Loans ###    
-        dash10 = pd.DataFrame()         
-        dash10['Percent_Approved_Loans'] = dash6['Approved_loans']/dash5['loans']
-
-        #############
-        #### KPI --- Total Number of Repaid Loans ###
-
-        dash7=pd.read_sql("""select count(distinct Loan_Number) Repaid_loans from loan where Loan_Status like 'Repaid%'
-                            """, self.engine)
-                            
-        #############
-        #### KPI --- Total Number of Cancelled Loans ###
-
-        dash8=pd.read_sql("""select count(distinct Loan_Number) Cancelled_loans from loan where Loan_Status like 'cancel%'
-                            """, self.engine)
-
-
-        #############
-        #### KPI --- Total Borrowers Obligation ###
-
-        dash9=pd.read_sql("""select Sum(Borrowers_Obligation) Borrowers_Obligation from loan """, self.engine)
-
-
-        wb = Workbook()
-
-        ws = wb.create_sheet("Loan_KPI_Dashboard") 
-
-        ws1 = wb.create_sheet("Data_Aggregations") 
-
-        ws2 = wb.create_sheet("Data_Quality_Statistics") 
-
-        std=wb['Sheet']
-        wb.remove(std)
-
-        ##save data frame to sheet
-
-        #### save data Dashboard Data Aggregation to sheet 2
-
-        #sheet 2        
-        rows = dataframe_to_rows(final)
-
-        for r_idx, row in enumerate(rows, 1):
-            for c_idx, value in enumerate(row, 1):
-                ws1.cell(row=r_idx, column=c_idx, value=value)
+        for col in range(0,len(heading3)): 
+            for row in range(1,57):
+                draw_frame_border(wbk, ws2, row, col, 1, 1,2)
                 
-        # save data from Data Quality statistics to  Sheet 3#####         
-        rows = dataframe_to_rows(stats_final)
-
-        for r_idx, row in enumerate(rows, 1):
-            for c_idx, value in enumerate(row, 1):
-                ws2.cell(row=r_idx, column=c_idx, value=value)
-
-        wb.save(dashboardpath)
-
-
-
-        wb = load_workbook(dashboardpath)
-
-        ws =wb['Loan_KPI_Dashboard']
-        ws2 = wb['Data_Aggregations']
-        ws3 = wb['Data_Quality_Statistics']
                 
-        ###############FORMATING DATA AGGREGATIONS AND STATISTICS SHEET ##########
-        #drop colum n rows
-        ws3.delete_rows(2)
-        ws3.delete_cols(1)
-
-        ws2.delete_rows(2)
-        ws2.delete_cols(1)
-
-        ws3['A1']='Category'
-
-
-        thin = Side(border_style="thin", color="000000")
-
-        ###########data aggregations table#######
-        ws2.insert_rows(1,1)
-        ws2.merge_cells('A1:C1') 
-        ws2.cell(row=1, column=1).value = 'DATA AGGREGATION'
-        ws2.cell(row=1, column=1).font  = Font(b=True, color="000000")
-
-        max_row = ws2.max_row +1
-        max_col = ws2.max_column +1
-        for row in range(3,max_row):
-            for col in range(2,max_col):
-                ws2.cell(row,col).style='Comma [0]'
                 
-        for row in range(2,max_row):
-            for col in range(1,max_col):
-                ws2.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        ########
+        heading4 = stats_final.columns
 
-        ###########statistics table#######
-        ws3.insert_rows(1,1)
-        ws3.merge_cells('A1:J1') 
-        ws3.cell(row=1, column=1).value = 'STATISTICS AND DATA QUALITY'
-        ws3.cell(row=1, column=1).font  = Font(b=True, color="000000")
+        # Write a row of data starting from 'A1'
+        # with bold format .
+        ws3.write_row( 1,0, heading4, bold)
 
-        max_row = ws3.max_row +1
-        max_col = ws3.max_column +1
-        for row in range(3,max_row):
-            for col in range(2,max_col):
-                ws3.cell(row,col).style='Comma [0]'
-                
-        for row in range(2,max_row):
-            for col in range(1,max_col):
-                ws3.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
+        # Write a column of data starting from
+        # 'A2', 'B2', 'C2' respectively .
+        for col in range(0,len(heading4)):
+            ws3.write_column( 2,col , stats_final.iloc[:,col],number_format)
 
+        for col in range(0,len(heading4)): 
+            for row in range(1,38):
+                draw_frame_border(wbk, ws3, row, col, 1, 1,2)
 
-        ##########DASHBOARD SHEET###################
-        ####Total Loans#####
-        ws['B2']='Total loans'
+        wbk.close()
 
-        ws['B3']=dash5.loc[0].at['loans']
-
-        for row in range(2,4):
-            for col in range(2,3):
-                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
-
-        ####Total Projects #####
-        ws['D2']='Total Projects'
-
-        ws['D3']=dash1.loc[0].at['No_of_projects']
-
-        for row in range(2,4):
-            for col in range(4,5):
-                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
-
-        ####Repaid Percentage ####
-        ws['F2']='Repaid_portion '
-
-        ws['F3']=dash4.loc[0].at['Repaid_portion']
-
-        ws.cell(3,6).style='Percent'
-
-        for row in range(2,4):
-            for col in range(6,7):
-                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
-
-
-
-        #######HERE ######
-        ws['B5']='Approved loans'
-
-        ws['B6']=dash6.loc[0].at['Approved_loans']
-
-        for row in range(5,7):
-            for col in range(2,3):
-                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
-
-        ws['D5']='Approved Loan Portion (%)'
-
-        ws['D6']=dash10.loc[0].at['Percent_Approved_Loans']
-        ws.cell(6,4).style='Percent'
-
-
-        for row in range(5,7):
-            for col in range(4,5):
-                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
-
-        ws['F5']='Overall Borrowers Obligation '
-
-        ws['F6']=dash9.loc[0].at['Borrowers_Obligation']
-        ws.cell(6,6).style.format('{3:,}')
-
-
-
-        for row in range(5,7):
-            for col in range(6,7):
-                ws.cell(row,col).border = Border(top=thin, left=thin, right=thin, bottom=thin)
-
-
-        wb.save(dashboardpath)
-
-
-
-        # wbk = xlsxwriter.Workbook(dashboardpath)
-        # ws4 = wbk.get_worksheet_by_name('Loan_KPI_Dashboard')
-
-        # ws4.write('D1', 'Loan_KPI_Dashboard') 
-        # ws4.hide_gridlines(2)
-
-        # # Create a Pandas Excel writer using XlsxWriter as the engine.
-        # writer = pd.ExcelWriter(dashboardpath, engine='xlsxwriter')
-
-        # chart1 = wbk.add_chart({'type': 'column'})
-
-        # dash2.to_excel(writer, sheet_name='Loan_KPI_Dashboard',
-        #         startrow=9, startcol=2, index=False)
-
-        # chart1.add_series({ 'Loan_status': '=Sheet1!$B$10:$B$21','values':     '=Sheet1!$C$10:$C$21',  })
-
-        # # Add a chart title and some axis labels.
-        # chart1.set_title ({'Number of loans per loan status'})
-        # chart1.set_x_axis({'Loan_Status'})
-        # chart1.set_y_axis({'No_of_loans'})
-
-        # # Insert the chart into the worksheet (with an offset).
-        # ws4.insert_chart('D10', chart1)#, {'x_offset': 25, 'y_offset': 10})
-
-        # # Apply a conditional format to the cell range.
-        # ws4.conditional_format('c10:c21', {'type': '3_color_scale'})
-        # ws4.conditional_format( 'B9:C21' , { 'type' : 'no_blanks' , 'format' : 'border_format'})
-
-        # wbk.set_size(1200, 800)
-        # wbk.save(dashboardpath)
-        # wbk.close()
-
+      
 
         return dashboardpath
 
@@ -629,8 +826,8 @@ if __name__ == "__main__":
     countryDF, guarantorDF, projectDF, loanDF = etl.DataProcessing(DownloadedFilePath)
 
     etl.LoadingCSVToDB(countryDF, guarantorDF, projectDF, loanDF)
-
-    etl.SendExcelDashboard(etl.Dashboard(DownloadedFilePath))
+    etl.Dashboard(DownloadedFilePath)
+    # etl.SendExcelDashboard(etl.Dashboard(DownloadedFilePath))
 
     
 #%%
