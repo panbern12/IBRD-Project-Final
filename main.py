@@ -819,7 +819,7 @@ if __name__ == "__main__":
 
     etl.LoadingCSVToDB(countryDF, guarantorDF, projectDF, loanDF)
     etl.Dashboard(DownloadedFilePath)
-    # etl.SendExcelDashboard(etl.Dashboard(DownloadedFilePath))
+    etl.SendExcelDashboard(etl.Dashboard(DownloadedFilePath))
 
     
 #%%
