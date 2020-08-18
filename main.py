@@ -26,7 +26,7 @@ class ETL():
         self.userName = 'bkagimu12@gmail.com'
         self.password = 'bkpython'
         self.date = dt.datetime.today().strftime("""%d-%b-%Y""")
-
+        ##create a Mysql Database connection
         self.mydb = mysql.connector.connect(
                     host='127.0.0.1',
                     user="root",
@@ -41,16 +41,15 @@ class ETL():
 
     def DownloadingEmailAttachment(self, From, Subject):
 
-        """ Fuction for downloading Email Attachment 
-        from email Account
+        """  Fuction for downloading Email Attachment from email Account
+            Returns Filename
         
-        Returns Filename
         """
         
         global fileName
-
+        ##select folder, from address and Subject for search of email
         self.connection.login(self.userName, self.password)
-        self.connection.select('Inbox') # select which folder to search from in the mailbox
+        self.connection.select('Inbox')
         response, data= self.connection.search(None,f'(FROM "{From}" SUBJECT "{Subject}" SENTON "{self.date}")') #Specify the search  criteria
 
         for msgId in data[0].split():
@@ -77,16 +76,18 @@ class ETL():
 
 
     def DataProcessing(self, filename):
-
+                           
         df = pd.read_csv(filename)
-
+        
+        ##Add Today's Date to the filename.
+        
         df.to_csv(filename+f"_{dt.datetime.today().strftime('%Y%m%d')}.csv")
 
-        #####split the csv into tables###################################
-        #############country table############# 
+        #####Split the csv file into tables###############
+        #############Country table############# 
         country=df[['Country Code', 'Country','Region']]
 
-        #working with columns
+        # Country columns
         country.columns=['Country_Code', 'Country','Region']
 
         # sorting by Country code 
@@ -158,7 +159,7 @@ class ETL():
 
 
 
-        # Check if data is already in DB
+        # Check if csv data is already in DB to avoid having duplicate rows re-added into the DB
         countryIDs = pd.read_sql('select distinct Country_Code from country', self.engine)
         projectIDs = pd.read_sql('select distinct Project_ID from project', self.engine)
         guarantorIDs = pd.read_sql('select distinct Guarantor_Country_Code from guarantor', self.engine)
@@ -174,18 +175,16 @@ class ETL():
 
 
     def CreatingMySQLDB(self): 
-        """ Creating a STAR Schema architecture in MySQL Based Database"""
+        """ Creating a STAR/Snow Flake Schema architecture in MySQL Database"""
 
         mycursor = self.mydb.cursor()
 
         # create MYSQL DataBase
         
-
-        
         mycursor.execute("CREATE DATABASE IF NOT EXISTS IBRD")
-
+        # use DB
         mycursor.execute("USE IBRD")
-
+        # Create Table loan
         mycursor.execute("""CREATE TABLE IF NOT EXISTS loan(
         processed_date DATETIME NOT NULL,
         Loan_Number varchar(50) NOT NULL, 
@@ -227,14 +226,15 @@ class ETL():
         FOREIGN KEY(Project_ID) REFERENCES         
         project(Project_ID )
         ON UPDATE CASCADE ON DELETE RESTRICT)""")
-
+        
+        # Create Table country 
         mycursor.execute("""CREATE TABLE IF NOT EXISTS country(
         Country_Code varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
         Country varchar(50) ,
         Region varchar(50)
         )""")
 
-
+        # Create Table Guarantor
         mycursor.execute("""CREATE TABLE IF NOT EXISTS guarantor(
         Guarantor_Country_Code varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
         Guarantor varchar(50) ,
@@ -243,7 +243,7 @@ class ETL():
         ON UPDATE CASCADE ON DELETE RESTRICT
         )""")
 
-
+        # Create Table Project
         mycursor.execute("""CREATE TABLE IF NOT EXISTS project(
         Project_ID varchar(50) NOT NULL UNIQUE PRIMARY KEY, 
         Project_Name varchar(50)
@@ -253,7 +253,7 @@ class ETL():
 
     def LoadingCSVToDB(self, country, guarantor, project, loan):
 
-        """ Loadin Data into Database """
+        """ Loading Data from csv file into Star/Snow flake Schema Database """
         # Insert whole DataFrame into MySQL
 
         loan.to_sql('loan', con = self.engine, chunksize= 500, if_exists = 'append',index=False)
@@ -270,7 +270,10 @@ class ETL():
  
     def Dashboard(self, filename):
 
-        """ """
+        """ Creating Three Dashboards
+                1. IBRD LOARN KPI Dashboard, 2. IBRD DATA QUALITY STATISTICS Dashboard 
+                & 3. IBRD DATA AGGREGATION Dashboard 
+                """ 
 
 
         df = pd.read_csv(filename)
@@ -278,45 +281,45 @@ class ETL():
         dashboardpath = "./data/excel_dashboard/final_dashboard1.xlsx"
 
         wbk = Workbook(dashboardpath)
-        ####WORKING ON THE DASHBOARD############
-                
-        ### KPI --- Loan Status Summary######
+        
+        ### 1. IBRD LOARN KPI Dashboard  #####
+        # Total Number of Projects
         dash1=pd.read_sql("select count(distinct Project_ID) No_of_projects from Project",self.engine)
-
+        # Loans Per Loan Status
         dash2=pd.read_sql("""select Loan_Status, count(distinct Loan_Number) No_of_loans from loan
                         group by Loan_Status Order by count(Loan_Number) Desc""", self.engine)
-                        
+        # Total Disbursed Loans / Loans Held  
         dash3=pd.read_sql("""select country, sum(Disbursed_Amount) loans_held from
                         (select distinct country, Disbursed_Amount from country c
                         inner join loan l on c.country_code = l.country_code)s 
                         group by country order by sum(Disbursed_Amount) desc limit 10"""
                         , self.engine)
-
+        # Repaid Portion
         dash4=pd.read_sql("""select Sum(Repaid_to_IBRD+Repaid_3rd_Party)/Sum(Disbursed_Amount) Repaid_portion 
                         from loan""",self.engine)
-                        
+        # Total Loans        
         dash5=pd.read_sql("""select COUNT(distinct loan_Number) loans from loan""",self.engine)
-
+        # Approved Loans
         dash6=pd.read_sql("""select count(distinct Loan_Number) Approved_loans from loan where Loan_Status = 'Approved'
                             """, self.engine)
+                            
+        # Percentage of Approved Loans
         dash10 = pd.DataFrame()         
         dash10['Percent_Approved_Loans'] = dash6['Approved_loans']/dash5['loans']
-
+        # Repaid Loans
         dash7=pd.read_sql("""select count(distinct Loan_Number) Repaid_loans from loan where Loan_Status like 'Repaid%'
                             """, self.engine)
+        # Cancelled Loans
         dash8=pd.read_sql("""select count(distinct Loan_Number) Cancelled_loans from loan where Loan_Status like 'cancel%'
                             """, self.engine)
-                            
+        # Aggregated Totals
         dash9=pd.read_sql("select sum(Original_Principal_Amount) Total_Principal,sum(Cancelled_Amount) Total_Cancelled,sum(Undisbursed_Amount) Total_Undisbursed,sum(Disbursed_Amount) Total_Disbursed,sum(Repaid_to_IBRD) Total_Repaid_IBRD,sum(Due_to_IBRD) Total_Due_to_IBRD,sum(Borrowers_Obligation) Total_Borrowers_Obligation,Sum(Sold_3rd_Party) Total_Sold_3rd_Party,sum(Repaid_3rd_Party) Total_Repaid_3rd_Party,sum(Due_3rd_Party) Total_Due_3rd_Party,Sum(Loans_Held) Total_Loans_Held from loan",self.engine)
 
-
+        # Aggregated Averages
         dash11=pd.read_sql("select avg(Original_Principal_Amount) avg_Principal,avg(Cancelled_Amount) avg_Cancelled,avg(Undisbursed_Amount) avg_Undisbursed,avg(Disbursed_Amount) avg_Disbursed,avg(Repaid_to_IBRD) avg_Repaid_IBRD,avg(Due_to_IBRD) avg_Due_to_IBRD,avg(Borrowers_Obligation) avg_Borrowers_Obligation,avg(Sold_3rd_Party) avg_Sold_3rd_Party,avg(Repaid_3rd_Party) avg_Repaid_3rd_Party,avg(Due_3rd_Party) avg_Due_3rd_Party,avg(Loans_Held) avg_Loans_Held from loan",self.engine)
 
 
-        ############loan status vs loans chart#####################
-
-       
-        #ws4 = wbk.get_worksheet_by_name('Loan_KPI_Dashboard')
+        # Create Worksheets in the Workbook
 
         ws4=wbk.add_worksheet('Loan_KPI_Dashboard')
         ws3=wbk.add_worksheet('Data_Qlty_Stat_Dashboard')
@@ -413,7 +416,7 @@ class ETL():
                                             {'type': 'formula', 'criteria': 'True', 'format': workbook.add_format({'right': thickness})})
 
 
-        # here we create bold format object .
+        # Formating objects to be used in the Dashboard.
         bold = wbk.add_format({ 'bold' : 1 })
         heading_format=wbk.add_format({ 'bold' : 1 })
         heading_format.set_font_size(25)
@@ -426,19 +429,16 @@ class ETL():
             'valign': 'vcenter',
             'fg_color': 'yellow'})
 
-
         # Merge 3 cells.
         ws4.merge_range('E1:H1', 'Merged Range', merge_format)
 
 
-        #draw_frame_border(wbk, ws4, 2, 1, 2, 1,2)
+        # Write to IBRD LOARN KPI Dashboard
         ws4.write_row( 'B3' , ['Total Projects'], bold)
         ws4.write_row( 'B4' , dash1.iloc[:,0], number_format)
         for row in range(2,4):
                 draw_frame_border(wbk, ws4, row, 1, 1, 1,2)
 
-
-        #draw_frame_border(wbk, ws4, 2, 1, 2, 1,2)
         ws4.write_row( 'D3' , ['Total Loans'], bold)
         ws4.write_row( 'D4' , dash5.iloc[:,0], number_format)
         for row in range(2,4):
@@ -464,7 +464,6 @@ class ETL():
         for row in range(2,4):
                 draw_frame_border(wbk, ws4, row, 11, 1, 1,2)
 
-        ####
         ws4.write_row( 'D6' , ['Total Principal'], bold)
         ws4.write_row( 'D7' , dash9.iloc[:,0], number_format)
         for row in range(5,7):
@@ -521,7 +520,6 @@ class ETL():
                 draw_frame_border(wbk, ws4, row, 1, 1, 1,2)
 
 
-        ####
         ws4.write_row( 'D13' , ['AVG Principal'], bold)
         ws4.write_row( 'D14' , dash11.iloc[:,0], number_format)
         for row in range(12,14):
@@ -581,22 +579,18 @@ class ETL():
         #making the heading
         ws4.write_row( 'E1' , ['IBRD LOAN KPI Dashboard'], heading_format)
 
-        #ws4.write(0,4, 'Loan_KPI_Dashboard')
         #Removing gridlines
         ws4.hide_gridlines(2)
 
-        # create a data list .
+        # create a data headings.
         headings = [ 'Loan Status' , 'number']
 
-        ####
         heading2 = [ 'Country' , ' Loan Held']
 
-        # Write a row of data starting from 'A1'
-        # with bold format .
+        # Write a row of data .
         ws4.write_row( 'B38' , heading2, bold)
 
-        # Write a column of data starting from
-        # 'A2', 'B2', 'C2' respectively .
+        # Write a column of data
         ws4.write_column( 'B39' , dash3.iloc[:,0], number_format)
         ws4.write_column( 'C39' , dash3.iloc[:,1], number_format)
 
@@ -604,32 +598,30 @@ class ETL():
             for row in range(37,48):
                 draw_frame_border(wbk, ws4, row, col, 1, 1,2)
 
-        #Adding a chart
+        #Adding a chart for Loan Status Vs Loans
         chart2 = wbk.add_chart({'type': 'column'})
-
-        #'name' : '= Loan_KPI_Dashboard !$A$3' ,
+        
+        # Define Series
         chart2.add_series({
             'name' : '= Loan_KPI_Dashboard !$A$3' ,
             'categories': '=Loan_KPI_Dashboard!$B$39:$B$49',
             'values':     '=Loan_KPI_Dashboard!$C$39:$C$49'
         })
 
-        # Insert the chart into the worksheet (with an offset).
-        ws4.insert_chart('E38', chart2)#, {'x_offset': 25, 'y_offset': 10})
+        # Insert the chart into the worksheet.
+        ws4.insert_chart('E38', chart2)
 
         # Add a chart title and some axis labels.
         chart2.set_title({'name' :'Loans Held per Country'})
         chart2.set_x_axis({'name' :'Country'})
         chart2.set_y_axis({'name' :'Total Loan Held'})
 
-        ####
-
+        
         # Write a row of data starting from 'A1'
         # with bold format .
         ws4.write_row( 'B21' , headings, bold)
 
-        # Write a column of data starting from
-        # 'A2', 'B2', 'C2' respectively .
+        # Write column data into the Top 10 Countries with Loans table
         ws4.write_column( 'B22' , dash2.iloc[:,0], number_format)
         ws4.write_column( 'C22' , dash2.iloc[:,1], number_format)
 
@@ -640,7 +632,7 @@ class ETL():
         #Adding a chart
         chart1 = wbk.add_chart({'type': 'column'})
 
-        #'name' : '= Loan_KPI_Dashboard !$A$3' ,
+        # Add Series
         chart1.add_series({
             'name' : '= Loan_KPI_Dashboard !$A$3' ,
             'categories': '=Loan_KPI_Dashboard!$B$22:$B$32',
@@ -648,8 +640,8 @@ class ETL():
         })
 
 
-        # Insert the chart into the worksheet (with an offset).
-        ws4.insert_chart('E21', chart1)#, {'x_offset': 25, 'y_offset': 10})
+        # Insert the chart into the worksheet 
+        ws4.insert_chart('E21', chart1)
 
         # Add a chart title and some axis labels.
         chart1.set_title({'name' :'Number of loans per loan status'})
@@ -660,13 +652,11 @@ class ETL():
         # Apply a conditional format to the cell range.
         ws4.conditional_format('C22:C32', {'type': '3_color_scale'})
         ws4.conditional_format('C39:C49', {'type': '3_color_scale'})
-        #ws4.conditional_format('A3:B14' , { 'type' : 'no_blanks' , 'format' : 'border_format'})
+        
+         ###  2. IBRD DATA QUALITY STATISTICS Dashboard ##### 
+            # Data Quality, Missing Values, Data Accuracy, Statistical Calculations #
                     
 
-        ###
-        #########################################WORKING ON THE DASHBOARD###############################
-
-        # ##### Data Accuracy Dashboard - Getting counts and missing values from the provided csv######
         values=int(len(df['Loan Number']))
 
         stats= pd.DataFrame()
@@ -692,9 +682,9 @@ class ETL():
 
         stats_final.fillna(0,inplace=True)
             
-        ###########################DASHBOARD DATA AGREGATIONS###################
-        #Pick data from database
+        ###### 3. IBRD DATA AGGREGATION Dashboard #######
         #######Total, Average, Minimum, Maximum #########
+        
         data=pd.read_sql("select processed_date,Original_Principal_Amount,Cancelled_Amount,Undisbursed_Amount,Disbursed_Amount,Repaid_to_IBRD,Due_to_IBRD,Borrowers_Obligation,Sold_3rd_Party,Repaid_3rd_Party,Due_3rd_Party,Loans_Held from loan",self.engine)
 
         #introducing the month column
@@ -750,14 +740,13 @@ class ETL():
 
         final=final.loc[~final['Field'].isin(['processed_month'])]
 
-        ###         
-
-        #making the heading
+        #making the headings for the Data Aggregation and Data Quality Dashboards
+        
         ws2.write_row( 'E1' , ['IBRD DATA AGGREGATION Dashboard'], heading_format)
         ws3.write_row( 'E1' , ['IBRD DATA QUALITY STATISTICS Dashboard'], heading_format)
 
-        #ws4.write(0,4, 'Loan_KPI_Dashboard')
-        #Removing gridlines
+        ## Writing IBRD DATA AGGREGATION Dashboard ##
+        # Removing gridlines
         ws2.hide_gridlines(2)
 
         # create a data list .
@@ -777,22 +766,22 @@ class ETL():
                 draw_frame_border(wbk, ws2, row, col, 1, 1,2)
                 
                 
+        ### Writing to IBRD DATA QUALITY STATISTICS Dashboard ###
                 
-        ########
         heading4 = stats_final.columns
 
-        # Write a row of data starting from 'A1'
-        # with bold format .
+        # Write a row of data
         ws3.write_row( 1,0, heading4, bold)
 
-        # Write a column of data starting from
-        # 'A2', 'B2', 'C2' respectively .
+        # Write a column of data 
         for col in range(0,len(heading4)):
             ws3.write_column( 2,col , stats_final.iloc[:,col],number_format)
 
         for col in range(0,len(heading4)): 
             for row in range(1,38):
                 draw_frame_border(wbk, ws3, row, col, 1, 1,2)
+                
+        # Close Workbook
 
         wbk.close()
 
@@ -802,13 +791,16 @@ class ETL():
 
 
     def SendExcelDashboard(self, Dashbardpath):
+        """ Function that sends an Email with an Excel attachment of the 
+            IBRD Monthly Dashboards
+        """
 
 
         envelope = Envelope(
             from_addr=(u'bkagimu12@gmail.com', u'Bernard Kagimu'),
-            to_addr=['raynermukiza@gmail.com', 'pandolkb@gmail.com'],
-            subject=u'Dashboard',
-            text_body=u"I'm a helicopter!"
+            to_addr=['panadolkb@gmail.com', 'bkagimu12@gmail.com'],
+            subject=u'IBRD Loans Dashboard',
+            text_body=u"Please find attached the IBRD Loans Dashboard for this Month"
         )
         envelope.add_attachment(Dashbardpath)
 
@@ -821,7 +813,7 @@ class ETL():
 if __name__ == "__main__":
     etl = ETL()
 
-    DownloadedFilePath = etl.DownloadingEmailAttachment('Bernard Kagimu', 'HELLO TEST MAIL')
+    DownloadedFilePath = etl.DownloadingEmailAttachment('Bernard Kagimu', 'IBRD STATEMENT OF LOANS')
 
     countryDF, guarantorDF, projectDF, loanDF = etl.DataProcessing(DownloadedFilePath)
 
